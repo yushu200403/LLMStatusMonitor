@@ -1,0 +1,50 @@
+{
+  "models": [
+    {
+      "id": "openai-gpt-4-1",
+      "name": "OpenAI GPT-4.1",
+      "provider": "OpenAI",
+      "model": "gpt-4.1",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "region": "ap-southeast-1",
+      "api_key_env": "OPENAI_API_KEY",
+      "test_prompt": "Reply with OK only.",
+      "timeout_seconds": 20,
+      "mock": true,
+      "enabled": true
+    },
+    {
+      "id": "deepseek-chat",
+      "name": "DeepSeek Chat",
+      "provider": "DeepSeek",
+      "model": "deepseek-chat",
+      "endpoint": "https://api.deepseek.com/chat/completions",
+      "region": "ap-northeast-1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "mock": true,
+      "enabled": true
+    },
+    {
+      "id": "claude-sonnet",
+      "name": "Claude Sonnet",
+      "provider": "Anthropic",
+      "model": "claude-3-5-sonnet-latest",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "region": "us-east-1",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "mock": true,
+      "enabled": true
+    },
+    {
+      "id": "qwen-max",
+      "name": "Qwen Max",
+      "provider": "Alibaba Cloud",
+      "model": "qwen-max",
+      "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "region": "cn-hangzhou",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "mock": true,
+      "enabled": true
+    }
+  ]
+}

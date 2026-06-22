@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import random
+import time
+from datetime import UTC, datetime
+
+import httpx
+
+from .config import ModelTarget
+
+
+def _status_from_latency(latency_ms: int, ok: bool) -> str:
+    if not ok:
+        return "down"
+    if latency_ms >= 1800:
+        return "degraded"
+    return "operational"
+
+
+async def probe_model(target: ModelTarget) -> dict:
+    checked_at = datetime.now(UTC).replace(microsecond=0).isoformat()
+    if not target.enabled:
+        return {
+            "model_id": target.id,
+            "model_name": target.name,
+            "provider": target.provider,
+            "region": target.region,
+            "status": "down",
+            "latency_ms": None,
+            "http_status": None,
+            "error": "Model target is disabled.",
+            "checked_at": checked_at,
+        }
+
+    if target.mock or not target.api_key or not target.endpoint:
+        return await _mock_probe(target, checked_at)
+
+    headers = {"Authorization": f"Bearer {target.api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": target.model,
+        "messages": [{"role": "user", "content": target.test_prompt}],
+        "max_tokens": 8,
+        "temperature": 0,
+    }
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=target.timeout_seconds) as client:
+            response = await client.post(target.endpoint, headers=headers, json=payload)
+        latency_ms = round((time.perf_counter() - started) * 1000)
+        status = _status_from_latency(latency_ms, response.status_code < 500)
+        error = None if response.is_success else response.text[:240]
+        if response.status_code in {401, 403, 404, 429}:
+            status = "down"
+        return {
+            "model_id": target.id,
+            "model_name": target.name,
+            "provider": target.provider,
+            "region": target.region,
+            "status": status,
+            "latency_ms": latency_ms,
+            "http_status": response.status_code,
+            "error": error,
+            "checked_at": checked_at,
+        }
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - started) * 1000)
+        return {
+            "model_id": target.id,
+            "model_name": target.name,
+            "provider": target.provider,
+            "region": target.region,
+            "status": "down",
+            "latency_ms": latency_ms,
+            "http_status": None,
+            "error": str(exc)[:240],
+            "checked_at": checked_at,
+        }
+
+
+async def _mock_probe(target: ModelTarget, checked_at: str) -> dict:
+    await asyncio.sleep(0.04)
+    seed = int(hashlib.sha256(f"{target.id}:{checked_at[:16]}".encode()).hexdigest()[:8], 16)
+    rng = random.Random(seed)
+    base = {
+        "openai-gpt-4-1": 820,
+        "deepseek-chat": 1120,
+        "claude-sonnet": 1650,
+        "qwen-max": 1290,
+    }.get(target.id, 950)
+    latency_ms = max(180, round(base + rng.randint(-160, 380)))
+    roll = rng.random()
+    status = _status_from_latency(latency_ms, True)
+    if target.id == "claude-sonnet" and roll > 0.68:
+        status = "degraded"
+        latency_ms += rng.randint(450, 1200)
+    elif roll > 0.96:
+        status = "down"
+    error = None
+    if status == "degraded":
+        error = "响应时间超过延迟阈值。"
+    if status == "down":
+        error = "模拟探测失败，可配置真实 API Key 启用实测。"
+    return {
+        "model_id": target.id,
+        "model_name": target.name,
+        "provider": target.provider,
+        "region": target.region,
+        "status": status,
+        "latency_ms": latency_ms,
+        "http_status": 200 if status != "down" else 503,
+        "error": error,
+        "checked_at": checked_at,
+    }
