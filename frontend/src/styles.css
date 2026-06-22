@@ -611,6 +611,10 @@ button:disabled {
   white-space: nowrap;
 }
 
+.model-detail.compact-detail {
+  grid-template-columns: 1.2fr 1.6fr 0.8fr 1.4fr;
+}
+
 .empty-state {
   display: flex;
   align-items: center;
@@ -619,6 +623,11 @@ button:disabled {
   gap: 10px;
   color: var(--muted);
   font-weight: 650;
+}
+
+.empty-state.compact {
+  min-height: 88px;
+  padding: 0 16px;
 }
 
 .bottom-grid {
@@ -641,6 +650,12 @@ button:disabled {
   margin: 0;
   font-size: 17px;
   font-weight: 780;
+}
+
+.panel-caption {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .text-action {
@@ -734,6 +749,28 @@ button:disabled {
 .queue-row {
   color: #334155;
   font-size: 14px;
+}
+
+.queue-head.error-head,
+.queue-row.error-row {
+  grid-template-columns: minmax(150px, 1.2fr) minmax(150px, 1.15fr) 90px 128px minmax(180px, 1.4fr);
+}
+
+.queue-row.error-row {
+  align-items: start;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.error-message {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queue-model {
@@ -992,6 +1029,18 @@ button:disabled {
   .queue-head,
   .queue-row {
     grid-template-columns: 1.4fr 1fr 70px;
+  }
+
+  .queue-head.error-head,
+  .queue-row.error-row {
+    grid-template-columns: 1.3fr 0.9fr 70px;
+  }
+
+  .queue-head.error-head span:nth-child(4),
+  .queue-head.error-head span:nth-child(5),
+  .queue-row.error-row span:nth-child(4),
+  .queue-row.error-row .error-message {
+    display: none;
   }
 
   .queue-head span:nth-child(4),

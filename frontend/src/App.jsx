@@ -1,11 +1,9 @@
 import {
   Activity,
   AlertTriangle,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Circle,
   Clock3,
   Filter,
   Info,
@@ -32,71 +30,27 @@ const STATUS_TONE = {
   unknown: "muted",
 };
 
-const SAMPLE_STATUS = {
+const EMPTY_STATUS = {
   summary: {
-    overall_status: "operational",
-    model_count: 4,
-    operational_count: 3,
-    degraded_count: 1,
+    overall_status: "unknown",
+    model_count: 0,
+    operational_count: 0,
+    degraded_count: 0,
     down_count: 0,
-    success_rate: 99.32,
-    p95_latency_ms: 1280,
-    last_updated_at: new Date().toISOString(),
-    interval_seconds: 60,
+    success_rate: 0,
+    p95_latency_ms: null,
+    last_updated_at: null,
+    probe_cron: "*/10 * * * *",
+    window_days: 7,
+    public_base_url: "",
+    config_name: "",
+    has_mock_models: false,
   },
-  models: [
-    sampleModel("openai-gpt-4-1", "OpenAI GPT-4.1", "OpenAI", "ap-southeast-1", "operational", 842, 99.78),
-    sampleModel("deepseek-chat", "DeepSeek Chat", "DeepSeek", "ap-northeast-1", "operational", 1120, 99.41),
-    sampleModel("claude-sonnet", "Claude Sonnet", "Anthropic", "us-east-1", "degraded", 1890, 97.84),
-    sampleModel("qwen-max", "Qwen Max", "Alibaba Cloud", "cn-hangzhou", "operational", 1310, 99.23),
-  ],
-  events: [
-    sampleEvent("Claude Sonnet 响应恢复正常", "响应时间已降至阈值以内", "info", -8),
-    sampleEvent("Claude Sonnet 响应变慢", "p95 延迟超过 1.5s", "warning", -16),
-    sampleEvent("OpenAI GPT-4.1 运行正常", "成功率已恢复到 99% 以上", "info", -34),
-    sampleEvent("DeepSeek Chat 计划维护完成", "所有服务已恢复", "notice", -72),
-  ],
+  models: [],
+  events: [],
+  errors: [],
   probes: [],
 };
-
-SAMPLE_STATUS.probes = SAMPLE_STATUS.models.concat(SAMPLE_STATUS.models).slice(0, 6).map((model, index) => ({
-  id: index,
-  model_name: model.name,
-  provider: model.provider,
-  region: index % 2 ? "eu-west-1" : model.region,
-  status: index === 2 ? "degraded" : "operational",
-  latency_ms: index === 2 ? 3210 : model.latency_ms + index * 24,
-  checked_at: new Date(Date.now() - index * 13000).toISOString(),
-}));
-
-function sampleModel(id, name, provider, region, status, latency, successRate) {
-  return {
-    id,
-    name,
-    provider,
-    region,
-    status,
-    latency_ms: latency,
-    p95_latency_ms: latency,
-    success_rate: successRate,
-    last_checked_at: new Date(Date.now() - Math.floor(Math.random() * 42000)).toISOString(),
-    history: Array.from({ length: 30 }, (_, index) => ({
-      date: `2025-05-${String(index + 1).padStart(2, "0")}`,
-      status: index % 17 === 0 ? "degraded" : "operational",
-    })),
-    mock: true,
-  };
-}
-
-function sampleEvent(title, description, severity, minutesOffset) {
-  return {
-    id: `${title}-${minutesOffset}`,
-    title,
-    description,
-    severity,
-    created_at: new Date(Date.now() + minutesOffset * 60000).toISOString(),
-  };
-}
 
 function formatDateTime(value) {
   if (!value) return "尚未检测";
@@ -146,33 +100,43 @@ function statusText(summary) {
 }
 
 function modelMark(model) {
-  if (model.provider === "OpenAI") return "◎";
+  if (model.provider === "SenseNova") return "SN";
+  if (model.provider === "RinkoAI") return "RA";
+  if (model.provider === "MuYuan") return "MY";
+  if (model.provider === "NVIDIA") return "NV";
+  if (model.provider === "SiliconFlow") return "SF";
+  if (model.provider === "Local") return "LC";
+  if (model.provider === "OpenAI") return "AI";
   if (model.provider === "DeepSeek") return "DS";
-  if (model.provider === "Anthropic") return "AI";
-  if (model.provider === "Alibaba Cloud") return "Q";
+  if (model.provider === "Anthropic") return "AN";
   return model.name.slice(0, 2).toUpperCase();
 }
 
 export function App() {
-  const [status, setStatus] = useState(SAMPLE_STATUS);
+  const [status, setStatus] = useState(EMPTY_STATUS);
   const [providerFilter, setProviderFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [grouped, setGrouped] = useState(false);
   const [selectedModel, setSelectedModel] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [apiHealthy, setApiHealthy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   async function loadStatus() {
     try {
-      const response = await fetch("/api/status");
-      if (!response.ok) throw new Error("Status API unavailable");
+      const response = await fetch("/api/status", { cache: "no-store" });
+      if (!response.ok) throw new Error("状态接口不可用");
       const payload = await response.json();
-      setStatus(payload);
+      setStatus({ ...EMPTY_STATUS, ...payload });
       setApiHealthy(true);
-    } catch {
+      setErrorMessage("");
+    } catch (error) {
       setApiHealthy(false);
+      setErrorMessage(error instanceof Error ? error.message : "无法连接后端状态接口");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -180,12 +144,14 @@ export function App() {
     setLoading(true);
     try {
       const response = await fetch("/api/probe/run", { method: "POST" });
-      if (!response.ok) throw new Error("Probe failed");
+      if (!response.ok) throw new Error("手动检测失败");
       const payload = await response.json();
-      setStatus(payload.status);
+      setStatus({ ...EMPTY_STATUS, ...payload.status });
       setApiHealthy(true);
-    } catch {
+      setErrorMessage("");
+    } catch (error) {
       setApiHealthy(false);
+      setErrorMessage(error instanceof Error ? error.message : "手动检测失败");
     } finally {
       setLoading(false);
     }
@@ -206,7 +172,7 @@ export function App() {
     return status.models.filter((model) => {
       const matchesProvider = providerFilter === "all" || model.provider === providerFilter;
       const matchesStatus = statusFilter === "all" || model.status === statusFilter;
-      const searchText = `${model.name} ${model.provider} ${model.region}`.toLowerCase();
+      const searchText = `${model.name} ${model.provider} ${model.model}`.toLowerCase();
       return matchesProvider && matchesStatus && searchText.includes(query.toLowerCase());
     });
   }, [providerFilter, query, status.models, statusFilter]);
@@ -219,7 +185,8 @@ export function App() {
     }, {});
   }, [models]);
 
-  const heroTone = STATUS_TONE[status.summary.overall_status] || "good";
+  const heroTone = STATUS_TONE[status.summary.overall_status] || "muted";
+  const windowDays = status.summary.window_days || 7;
 
   return (
     <main className="app-shell">
@@ -242,13 +209,13 @@ export function App() {
           <Metric label="运行正常" value={status.summary.operational_count} tone="good" />
           <Metric label="响应变慢" value={status.summary.degraded_count} tone="slow" />
           <Metric label="接口异常" value={status.summary.down_count} tone="bad" />
-          <Metric label="成功率（平均）" value={`${status.summary.success_rate}%`} tone="good" />
-          <Metric label="平均延迟（p95）" value={formatLatency(status.summary.p95_latency_ms)} />
+          <Metric label={`成功率(${windowDays}天)`} value={`${status.summary.success_rate}%`} tone="good" />
+          <Metric label="平均延迟(p95)" value={formatLatency(status.summary.p95_latency_ms)} />
         </section>
 
         <section className="top-actions" aria-label="页面操作">
           <span className="last-updated">最后更新：{formatDateTime(status.summary.last_updated_at)}</span>
-          <button className="icon-button primary" onClick={runProbe} disabled={loading} title="手动刷新">
+          <button className="icon-button primary" onClick={runProbe} disabled={loading} title="立即检测">
             <RefreshCcw aria-hidden="true" className={loading ? "spinning" : ""} />
           </button>
           <button className="icon-button" onClick={() => setSettingsOpen(true)} title="检测配置">
@@ -263,11 +230,15 @@ export function App() {
             {status.summary.overall_status === "down" ? <AlertTriangle /> : <ShieldCheck />}
           </div>
           <div>
-            <h2>{statusText(status.summary)}</h2>
+            <h2>{apiHealthy ? statusText(status.summary) : "等待真实状态数据"}</h2>
             <p>
               {apiHealthy
-                ? "所有监控的模型与服务均按当前探测配置运行。"
-                : "当前展示本地示例数据，后台启动后会自动切换为实时探测结果。"}
+                ? status.summary.has_mock_models
+                  ? `当前配置 ${status.summary.config_name || "未知"} 仍包含 Mock 模型，请确认远端覆盖文件。`
+                  : `真实配置已加载，按 ${status.summary.probe_cron} 检测，展示最近 ${windowDays} 天状态。`
+                : loading
+                  ? "正在从后端读取真实检测结果。"
+                  : `后端状态接口不可用：${errorMessage}`}
             </p>
           </div>
         </div>
@@ -287,11 +258,7 @@ export function App() {
         <div className="toolbar">
           <label className="searchbox">
             <Search aria-hidden="true" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索模型或区域"
-            />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型或提供商" />
           </label>
           <Select value={providerFilter} onChange={setProviderFilter} label="提供商">
             {providers.map((provider) => (
@@ -308,7 +275,7 @@ export function App() {
           </Select>
           <button className={`group-button ${grouped ? "active" : ""}`} onClick={() => setGrouped(!grouped)}>
             <Filter aria-hidden="true" />
-            按分组
+            按提供商分组
           </button>
         </div>
       </section>
@@ -317,83 +284,87 @@ export function App() {
         <div className="model-grid header-row">
           <span>模型</span>
           <span>状态</span>
-          <span>成功率（30天）</span>
-          <span>平均延迟（p95）</span>
+          <span>{windowDays}天成功率</span>
+          <span>平均延迟(p95)</span>
           <span>最后检测</span>
-          <span>30天状态</span>
+          <span>{windowDays}天状态</span>
           <span />
         </div>
-        {grouped ? (
-          Object.entries(groupedModels).map(([provider, providerModels]) => (
-            <div className="provider-block" key={provider}>
-              <div className="provider-title">{provider}</div>
-              {providerModels.map((model) => (
-                <ModelRow
-                  key={model.id}
-                  model={model}
-                  selected={selectedModel === model.id}
-                  onSelect={() => setSelectedModel(selectedModel === model.id ? null : model.id)}
-                />
-              ))}
-            </div>
-          ))
-        ) : (
-          models.map((model) => (
-            <ModelRow
-              key={model.id}
-              model={model}
-              selected={selectedModel === model.id}
-              onSelect={() => setSelectedModel(selectedModel === model.id ? null : model.id)}
-            />
-          ))
-        )}
+        {grouped
+          ? Object.entries(groupedModels).map(([provider, providerModels]) => (
+              <div className="provider-block" key={provider}>
+                <div className="provider-title">{provider}</div>
+                {providerModels.map((model) => (
+                  <ModelRow
+                    key={model.id}
+                    model={model}
+                    selected={selectedModel === model.id}
+                    windowDays={windowDays}
+                    onSelect={() => setSelectedModel(selectedModel === model.id ? null : model.id)}
+                  />
+                ))}
+              </div>
+            ))
+          : models.map((model) => (
+              <ModelRow
+                key={model.id}
+                model={model}
+                selected={selectedModel === model.id}
+                windowDays={windowDays}
+                onSelect={() => setSelectedModel(selectedModel === model.id ? null : model.id)}
+              />
+            ))}
         {!models.length && (
           <div className="empty-state">
             <Info aria-hidden="true" />
-            没有符合当前筛选条件的模型。
+            {loading ? "正在加载真实模型状态。" : "没有可展示的真实模型数据。"}
           </div>
         )}
       </section>
 
       <section className="bottom-grid">
-        <Panel
-          title="最近事件"
-          action={<button className="text-action">查看全部</button>}
-        >
+        <Panel title="最近事件" action={<span className="panel-caption">状态变化</span>}>
           <div className="event-list">
-            {status.events.map((event) => (
-              <article className="event-row" key={event.id}>
-                <SeverityIcon severity={event.severity} />
-                <div>
-                  <h3>{event.title}</h3>
-                  <p>{event.description}</p>
-                </div>
-                <time>{formatDateTime(event.created_at)}</time>
-              </article>
-            ))}
+            {status.events.length ? (
+              status.events.map((event) => (
+                <article className="event-row" key={event.id}>
+                  <SeverityIcon severity={event.severity} />
+                  <div>
+                    <h3>{event.title}</h3>
+                    <p>{event.description}</p>
+                  </div>
+                  <time>{formatDateTime(event.created_at)}</time>
+                </article>
+              ))
+            ) : (
+              <div className="empty-state compact">暂无事件。</div>
+            )}
           </div>
         </Panel>
 
-        <Panel title="探测队列" action={<ChevronDown aria-hidden="true" />}>
+        <Panel title="最近5次错误" action={<span className="panel-caption">含错误码</span>}>
           <div className="queue-table">
-            <div className="queue-head">
+            <div className="queue-head error-head">
               <span>模型</span>
-              <span>探测点</span>
               <span>状态</span>
+              <span>错误码</span>
               <span>响应时间</span>
               <span>时间</span>
-              <span />
             </div>
-            {status.probes.slice(0, 6).map((probe) => (
-              <div className="queue-row" key={`${probe.id}-${probe.checked_at}`}>
-                <span className="queue-model">{probe.model_name}</span>
-                <span>{probe.region}</span>
-                <Badge status={probe.status} />
-                <span>{formatLatency(probe.latency_ms)}</span>
-                <span>{formatClock(probe.checked_at)}</span>
-                <ResultIcon status={probe.status} />
-              </div>
-            ))}
+            {status.errors.length ? (
+              status.errors.slice(0, 5).map((record) => (
+                <div className="queue-row error-row" key={`${record.id}-${record.checked_at}`}>
+                  <span className="queue-model">{record.model_name}</span>
+                  <Badge status={record.status} />
+                  <span>{record.http_status ?? "无"}</span>
+                  <span>{formatLatency(record.latency_ms)}</span>
+                  <span>{formatClock(record.checked_at)}</span>
+                  <p className="error-message">{record.error || "无错误详情"}</p>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state compact">最近没有错误记录。</div>
+            )}
           </div>
         </Panel>
       </section>
@@ -431,15 +402,13 @@ function Select({ value, onChange, label, children }) {
   );
 }
 
-function ModelRow({ model, selected, onSelect }) {
+function ModelRow({ model, selected, windowDays, onSelect }) {
   const tone = STATUS_TONE[model.status] || "muted";
   return (
     <>
       <button className={`model-grid model-row ${selected ? "selected" : ""}`} onClick={onSelect}>
         <span className="model-identity">
-          <span className={`model-logo ${model.provider.toLowerCase().split(" ")[0]}`}>
-            {modelMark(model)}
-          </span>
+          <span className={`model-logo ${model.provider.toLowerCase().split(" ")[0]}`}>{modelMark(model)}</span>
           <span>
             <strong>{model.name}</strong>
             <small>{model.provider}</small>
@@ -449,32 +418,32 @@ function ModelRow({ model, selected, onSelect }) {
           <span className={`status-dot ${tone}`} />
           {STATUS_LABEL[model.status] || "等待检测"}
         </span>
-        <span className={`rate ${tone}`}>{model.success_rate.toFixed(2)}%</span>
+        <span className={`rate ${tone}`}>{Number(model.success_rate || 0).toFixed(2)}%</span>
         <span className="latency">{formatLatency(model.p95_latency_ms || model.latency_ms)}</span>
         <span className="last-check">
           <strong>{formatClock(model.last_checked_at)}</strong>
           <small>{relativeTime(model.last_checked_at)}</small>
         </span>
-        <span className="history-bars" aria-label={`${model.name} 30天状态`}>
-          {model.history.slice(-30).map((item) => (
+        <span className="history-bars" aria-label={`${model.name} ${windowDays}天状态`}>
+          {(model.history || []).slice(-windowDays).map((item) => (
             <i key={item.date} className={STATUS_TONE[item.status] || "muted"} title={`${item.date} ${STATUS_LABEL[item.status]}`} />
           ))}
         </span>
         <ChevronRight aria-hidden="true" className={selected ? "rotated" : ""} />
       </button>
       {selected && (
-        <div className="model-detail">
+        <div className="model-detail compact-detail">
           <div>
             <span>模型 ID</span>
             <strong>{model.model}</strong>
           </div>
           <div>
-            <span>探测区域</span>
-            <strong>{model.region}</strong>
+            <span>端点</span>
+            <strong>{model.endpoint}</strong>
           </div>
           <div>
-            <span>当前模式</span>
-            <strong>{model.mock ? "模拟探测" : "真实接口"}</strong>
+            <span>慢响应阈值</span>
+            <strong>{formatLatency(model.degraded_threshold_ms)}</strong>
           </div>
           <div>
             <span>最近错误</span>
@@ -488,13 +457,7 @@ function ModelRow({ model, selected, onSelect }) {
 
 function Badge({ status }) {
   const tone = STATUS_TONE[status] || "muted";
-  return <span className={`badge ${tone}`}>{status === "degraded" ? "超时" : status === "down" ? "失败" : "成功"}</span>;
-}
-
-function ResultIcon({ status }) {
-  if (status === "down") return <X aria-hidden="true" className="result-icon bad" />;
-  if (status === "degraded") return <AlertTriangle aria-hidden="true" className="result-icon slow" />;
-  return <Check aria-hidden="true" className="result-icon good" />;
+  return <span className={`badge ${tone}`}>{status === "degraded" ? "变慢" : status === "down" ? "失败" : "正常"}</span>;
 }
 
 function SeverityIcon({ severity }) {
@@ -523,7 +486,10 @@ function ConfigDrawer({ status, apiHealthy, onClose, onProbe }) {
         <header>
           <div>
             <h2 id="config-title">检测配置</h2>
-            <p>当前周期：{status.summary.interval_seconds} 秒，接口状态：{apiHealthy ? "已连接" : "示例数据"}</p>
+            <p>
+              Cron：{status.summary.probe_cron} · 窗口：{status.summary.window_days} 天 · 接口：
+              {apiHealthy ? "已连接" : "不可用"}
+            </p>
           </div>
           <button className="icon-button" onClick={onClose} title="关闭">
             <X aria-hidden="true" />
@@ -537,17 +503,21 @@ function ConfigDrawer({ status, apiHealthy, onClose, onProbe }) {
               </div>
               <div>
                 <h3>{model.name}</h3>
-                <p>{model.region} · {model.mock ? "模拟探测" : "真实接口"}</p>
+                <p>
+                  慢响应 {formatLatency(model.degraded_threshold_ms)} · 超时 {model.timeout_seconds}s
+                </p>
               </div>
               <Badge status={model.status} />
             </article>
           ))}
         </div>
         <footer>
-          <button className="secondary-button" onClick={onClose}>关闭</button>
+          <button className="secondary-button" onClick={onClose}>
+            关闭
+          </button>
           <button className="primary-button" onClick={onProbe}>
             <Clock3 aria-hidden="true" />
-            立即探测
+            立即检测
           </button>
         </footer>
       </div>

@@ -36,7 +36,7 @@ class StatusStore:
                     model_id TEXT NOT NULL,
                     model_name TEXT NOT NULL,
                     provider TEXT NOT NULL,
-                    region TEXT NOT NULL,
+                    region TEXT DEFAULT '',
                     status TEXT NOT NULL,
                     latency_ms INTEGER,
                     http_status INTEGER,
@@ -85,7 +85,7 @@ class StatusStore:
                     result["model_id"],
                     result["model_name"],
                     result["provider"],
-                    result["region"],
+                    result.get("region", ""),
                     result["status"],
                     result.get("latency_ms"),
                     result.get("http_status"),
@@ -100,7 +100,7 @@ class StatusStore:
                 if result["status"] == "degraded":
                     severity = "warning"
                     title = f"{result['model_name']} 响应变慢"
-                    description = result.get("error") or "p95 延迟超过阈值。"
+                    description = result.get("error") or "响应时间超过阈值。"
                 if result["status"] == "down":
                     severity = "critical"
                     title = f"{result['model_name']} 接口异常"
@@ -143,6 +143,18 @@ class StatusStore:
             return conn.execute(
                 """
                 SELECT * FROM probe_results
+                ORDER BY checked_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+    def recent_errors(self, limit: int = 5) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM probe_results
+                WHERE status IN ('degraded', 'down') OR error IS NOT NULL OR http_status >= 400
                 ORDER BY checked_at DESC
                 LIMIT ?
                 """,

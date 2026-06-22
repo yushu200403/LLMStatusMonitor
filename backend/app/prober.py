@@ -18,10 +18,10 @@ def _chat_completions_endpoint(endpoint: str) -> str:
     return f"{cleaned}/chat/completions"
 
 
-def _status_from_latency(latency_ms: int, ok: bool) -> str:
+def _status_from_latency(latency_ms: int, ok: bool, degraded_threshold_ms: int) -> str:
     if not ok:
         return "down"
-    if latency_ms >= 1800:
+    if latency_ms >= degraded_threshold_ms:
         return "degraded"
     return "operational"
 
@@ -33,7 +33,6 @@ async def probe_model(target: ModelTarget) -> dict:
             "model_id": target.id,
             "model_name": target.name,
             "provider": target.provider,
-            "region": target.region,
             "status": "down",
             "latency_ms": None,
             "http_status": None,
@@ -59,15 +58,15 @@ async def probe_model(target: ModelTarget) -> dict:
         async with httpx.AsyncClient(timeout=target.timeout_seconds) as client:
             response = await client.post(_chat_completions_endpoint(target.endpoint), headers=headers, json=payload)
         latency_ms = round((time.perf_counter() - started) * 1000)
-        status = _status_from_latency(latency_ms, response.status_code < 500)
-        error = None if response.is_success else response.text[:240]
+        ok = response.is_success
+        status = _status_from_latency(latency_ms, ok, target.degraded_threshold_ms)
+        error = None if ok else response.text[:240]
         if response.status_code in {401, 403, 404, 429}:
             status = "down"
         return {
             "model_id": target.id,
             "model_name": target.name,
             "provider": target.provider,
-            "region": target.region,
             "status": status,
             "latency_ms": latency_ms,
             "http_status": response.status_code,
@@ -80,7 +79,6 @@ async def probe_model(target: ModelTarget) -> dict:
             "model_id": target.id,
             "model_name": target.name,
             "provider": target.provider,
-            "region": target.region,
             "status": "down",
             "latency_ms": latency_ms,
             "http_status": None,
@@ -96,27 +94,23 @@ async def _mock_probe(target: ModelTarget, checked_at: str) -> dict:
     base = {
         "openai-gpt-4-1": 820,
         "deepseek-chat": 1120,
-        "claude-sonnet": 1650,
+        "claude-sonnet": 2200,
         "qwen-max": 1290,
     }.get(target.id, 950)
-    latency_ms = max(180, round(base + rng.randint(-160, 380)))
+    latency_ms = max(180, round(base + rng.randint(-160, 620)))
     roll = rng.random()
-    status = _status_from_latency(latency_ms, True)
-    if target.id == "claude-sonnet" and roll > 0.68:
-        status = "degraded"
-        latency_ms += rng.randint(450, 1200)
-    elif roll > 0.96:
+    status = _status_from_latency(latency_ms, True, target.degraded_threshold_ms)
+    if roll > 0.96:
         status = "down"
     error = None
     if status == "degraded":
-        error = "响应时间超过延迟阈值。"
+        error = f"响应时间超过 {target.degraded_threshold_ms}ms 阈值。"
     if status == "down":
-        error = "模拟探测失败，可配置真实 API Key 启用实测。"
+        error = "模拟探测失败，请配置真实模型接口。"
     return {
         "model_id": target.id,
         "model_name": target.name,
         "provider": target.provider,
-        "region": target.region,
         "status": status,
         "latency_ms": latency_ms,
         "http_status": 200 if status != "down" else 503,

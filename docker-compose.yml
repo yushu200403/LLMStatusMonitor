@@ -5,8 +5,9 @@ services:
     environment:
       MODEL_CONFIG_PATH: /app/config/models.json
       DATABASE_PATH: /app/data/status.db
-      PROBE_INTERVAL_SECONDS: 60
-      STATUS_WINDOW_DAYS: 30
+      PROBE_CRON: "${PROBE_CRON:-*/10 * * * *}"
+      STATUS_WINDOW_DAYS: ${STATUS_WINDOW_DAYS:-7}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://111.228.11.160/}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
