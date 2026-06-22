@@ -17,6 +17,7 @@ class ModelTarget:
     region: str
     api_key_env: str
     api_key: str | None
+    no_auth: bool
     test_prompt: str
     timeout_seconds: float
     enabled: bool
@@ -88,7 +89,9 @@ def _read_targets(path: Path) -> list[dict[str, Any]]:
 
 
 def load_settings() -> Settings:
-    local_config = Path.cwd() / "config" / "models.example.json"
+    local_private_config = Path.cwd() / "config" / "models.local.json"
+    local_example_config = Path.cwd() / "config" / "models.example.json"
+    local_config = local_private_config if local_private_config.exists() else local_example_config
     config_path = Path(os.getenv("MODEL_CONFIG_PATH", str(local_config if local_config.exists() else "/app/config/models.json")))
     local_data = Path.cwd() / "status.db"
     database_path = Path(os.getenv("DATABASE_PATH", str(local_data if local_config.exists() else "/app/data/status.db")))
@@ -98,6 +101,11 @@ def load_settings() -> Settings:
     targets: list[ModelTarget] = []
     for raw in _read_targets(config_path):
         api_key_env = str(raw.get("api_key_env", ""))
+        raw_api_key = raw.get("api_key")
+        api_key = str(raw_api_key) if raw_api_key else (os.getenv(api_key_env) if api_key_env else None)
+        no_auth = str(raw_api_key or "").strip().upper() == "NA" or bool(raw.get("no_auth", False))
+        if no_auth:
+            api_key = None
         targets.append(
             ModelTarget(
                 id=str(raw["id"]),
@@ -107,7 +115,8 @@ def load_settings() -> Settings:
                 endpoint=str(raw.get("endpoint", "")),
                 region=str(raw.get("region", "global")),
                 api_key_env=api_key_env,
-                api_key=os.getenv(api_key_env) if api_key_env else None,
+                api_key=api_key,
+                no_auth=no_auth,
                 test_prompt=str(raw.get("test_prompt", "Reply with OK only.")),
                 timeout_seconds=float(raw.get("timeout_seconds", 20)),
                 enabled=bool(raw.get("enabled", True)),

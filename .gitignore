@@ -5,3 +5,7 @@ backend/app/__pycache__/
 *.pyc
 *.db
 .env
+docker-compose.override.yml
+config/models.local.json
+config/*.private.json
+config/*.secret.json

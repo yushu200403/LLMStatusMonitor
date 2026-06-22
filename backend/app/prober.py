@@ -11,6 +11,13 @@ import httpx
 from .config import ModelTarget
 
 
+def _chat_completions_endpoint(endpoint: str) -> str:
+    cleaned = endpoint.rstrip("/")
+    if cleaned.endswith("/chat/completions"):
+        return cleaned
+    return f"{cleaned}/chat/completions"
+
+
 def _status_from_latency(latency_ms: int, ok: bool) -> str:
     if not ok:
         return "down"
@@ -34,10 +41,12 @@ async def probe_model(target: ModelTarget) -> dict:
             "checked_at": checked_at,
         }
 
-    if target.mock or not target.api_key or not target.endpoint:
+    if target.mock or (not target.api_key and not target.no_auth) or not target.endpoint:
         return await _mock_probe(target, checked_at)
 
-    headers = {"Authorization": f"Bearer {target.api_key}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if target.api_key:
+        headers["Authorization"] = f"Bearer {target.api_key}"
     payload = {
         "model": target.model,
         "messages": [{"role": "user", "content": target.test_prompt}],
@@ -48,7 +57,7 @@ async def probe_model(target: ModelTarget) -> dict:
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=target.timeout_seconds) as client:
-            response = await client.post(target.endpoint, headers=headers, json=payload)
+            response = await client.post(_chat_completions_endpoint(target.endpoint), headers=headers, json=payload)
         latency_ms = round((time.perf_counter() - started) * 1000)
         status = _status_from_latency(latency_ms, response.status_code < 500)
         error = None if response.is_success else response.text[:240]
