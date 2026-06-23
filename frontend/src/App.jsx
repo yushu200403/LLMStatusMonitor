@@ -10,7 +10,6 @@ import {
   RefreshCcw,
   Search,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -223,35 +222,6 @@ export function App() {
           </button>
         </section>
       </header>
-
-      <section className={`health-banner ${heroTone}`}>
-        <div className="health-copy">
-          <div className="health-icon">
-            {status.summary.overall_status === "down" ? <AlertTriangle /> : <ShieldCheck />}
-          </div>
-          <div>
-            <h2>{apiHealthy ? statusText(status.summary) : "等待真实状态数据"}</h2>
-            <p>
-              {apiHealthy
-                ? status.summary.has_mock_models
-                  ? `当前配置 ${status.summary.config_name || "未知"} 仍包含 Mock 模型，请确认远端覆盖文件。`
-                  : `真实配置已加载，按 ${status.summary.probe_cron} 检测，展示最近 ${windowDays} 天状态。`
-                : loading
-                  ? "正在从后端读取真实检测结果。"
-                  : `后端状态接口不可用：${errorMessage}`}
-            </p>
-          </div>
-        </div>
-        <div className="sparkline" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-      </section>
 
       <section className="section-heading">
         <h2>模型状态</h2>
